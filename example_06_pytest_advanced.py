@@ -38,7 +38,7 @@ CREATE_EVENTS_TABLE = """
     ENGINE = MergeTree()
     PARTITION BY toYYYYMM(event_date)
     ORDER BY (user_id, event_time)
-    TTL event_date + INTERVAL 30 DAY MOVE TO VOLUME 'warm',
+    TTL event_date + INTERVAL 30 DAY TO VOLUME 'warm',
         event_date + INTERVAL 365 DAY DELETE
     SETTINGS storage_policy = 'tiered'
 """
