@@ -47,7 +47,7 @@ def run() -> None:
         .with_env("CLICKHOUSE_USER", "demo")
         .with_env("CLICKHOUSE_PASSWORD", "demo")
     )
-    breakpoint()
+    # breakpoint()
     # ---- 2. Start and wait ---------------------------------------------------
     with container:
         host = container.get_container_host_ip()
@@ -57,6 +57,8 @@ def run() -> None:
         print("[2] Container started. Polling HTTP interface until ready...")
         wait_for_http(host, http_port)
         print(f"[3] ClickHouse is ready at {host}:{native_port}")
+
+        # breakpoint()
 
         # ---- 3. Connect and query --------------------------------------------
         print("[4] Connecting with clickhouse-driver...")
@@ -69,8 +71,12 @@ def run() -> None:
         )
 
         result = client.execute("SELECT 1 AS healthy")
+
         print(f"[5] Query result: {result}")
         assert result == [(1,)], f"Unexpected result: {result}"
+
+        breakpoint()
+
         print("[6] Query succeeded!")
 
     # Context manager exits here -> container is stopped and removed

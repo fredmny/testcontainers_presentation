@@ -11,9 +11,8 @@
 <clickhouse>
     <storage_configuration>
         <disks>
-            <hot_disk>
-                <path>/var/lib/clickhouse/</path>
-            </hot_disk>
+            <!-- "default" is the built-in disk at /var/lib/clickhouse/.
+                 We only need to declare the warm disk explicitly. -->
             <warm_disk>
                 <path>/var/lib/clickhouse_warm/</path>
             </warm_disk>
@@ -23,7 +22,7 @@
             <tiered>
                 <volumes>
                     <hot>
-                        <disk>hot_disk</disk>
+                        <disk>default</disk>
                     </hot>
                     <warm>
                         <disk>warm_disk</disk>

@@ -14,7 +14,7 @@ config so the container has a "tiered" policy with hot + warm volumes.
 Run with:  uv run pytest example_06_pytest_advanced.py -v
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import clickhouse_driver
@@ -38,7 +38,7 @@ CREATE_EVENTS_TABLE = """
     ENGINE = MergeTree()
     PARTITION BY toYYYYMM(event_date)
     ORDER BY (user_id, event_time)
-    TTL event_date + INTERVAL 30 DAY TO VOLUME 'warm',
+    TTL event_date + INTERVAL 30 DAY MOVE TO VOLUME 'warm',
         event_date + INTERVAL 365 DAY DELETE
     SETTINGS storage_policy = 'tiered'
 """
@@ -187,8 +187,11 @@ class TestTableCreation:
             WHERE database = 'test' AND name = 'events'
         """)
         create_stmt = rows[0][0]
+        # ClickHouse stores both TTL rules: the VOLUME move and the
+        # retention-period rule.  The DELETE keyword is implicit (it's
+        # the default TTL action) so ClickHouse normalizes it away.
         assert "TO VOLUME 'warm'" in create_stmt
-        assert "DELETE" in create_stmt
+        assert "toIntervalDay(365)" in create_stmt
 
 
 class TestPartitioning:
@@ -198,12 +201,19 @@ class TestPartitioning:
         """Inserting data across months should create separate partitions."""
         client.execute(CREATE_EVENTS_TABLE)
 
+        # Use recent dates so the TTL rules (30-day move, 365-day delete)
+        # don't expire the data before we can query it.
+        today = date.today()
+        month1 = today.replace(day=15)
+        month2 = (today.replace(day=1) - timedelta(days=1)).replace(day=10)  # prev month
+        month3 = (month2.replace(day=1) - timedelta(days=1)).replace(day=5)  # 2 months ago
+
         client.execute(
             "INSERT INTO events (event_date, event_time, user_id, event_type, payload) VALUES",
             [
-                (date(2024, 1, 15), datetime(2024, 1, 15, 10, 0, 0), 1, "click", "jan"),
-                (date(2024, 2, 10), datetime(2024, 2, 10, 12, 0, 0), 2, "view", "feb"),
-                (date(2024, 3, 5), datetime(2024, 3, 5, 14, 0, 0), 1, "click", "mar"),
+                (month1, datetime.combine(month1, datetime.min.time()), 1, "click", "m1"),
+                (month2, datetime.combine(month2, datetime.min.time()), 2, "view", "m2"),
+                (month3, datetime.combine(month3, datetime.min.time()), 1, "click", "m3"),
             ],
         )
 
@@ -214,31 +224,40 @@ class TestPartitioning:
             ORDER BY partition
         """)
         partitions = [row[0] for row in rows]
-        assert "202401" in partitions
-        assert "202402" in partitions
-        assert "202403" in partitions
+        expected = sorted({
+            month1.strftime("%Y%m"),
+            month2.strftime("%Y%m"),
+            month3.strftime("%Y%m"),
+        })
+        for p in expected:
+            assert p in partitions, f"Expected partition {p} in {partitions}"
 
     def test_order_by_within_partition(self, client: clickhouse_driver.Client) -> None:
         """Data should be sorted by (user_id, event_time) within a partition."""
         client.execute(CREATE_EVENTS_TABLE)
 
-        # Insert multiple rows in the same month, different users/times
+        # Use today's date (well within TTL) and insert into a single month.
+        today = date.today()
         client.execute(
             "INSERT INTO events (event_date, event_time, user_id, event_type, payload) VALUES",
             [
-                (date(2024, 6, 1), datetime(2024, 6, 1, 15, 0, 0), 3, "click", "c"),
-                (date(2024, 6, 1), datetime(2024, 6, 1, 10, 0, 0), 1, "view", "a"),
-                (date(2024, 6, 1), datetime(2024, 6, 1, 12, 0, 0), 1, "click", "b"),
+                (today, datetime.combine(today, datetime.min.time().replace(hour=15)), 3, "click", "c"),
+                (today, datetime.combine(today, datetime.min.time().replace(hour=10)), 1, "view", "a"),
+                (today, datetime.combine(today, datetime.min.time().replace(hour=12)), 1, "click", "b"),
             ],
         )
 
-        rows = client.execute("""
+        this_month = int(today.strftime("%Y%m"))
+        rows = client.execute(f"""
             SELECT user_id, event_time, payload
             FROM events
-            WHERE toYYYYMM(event_date) = 202406
+            WHERE toYYYYMM(event_date) = {this_month}
             ORDER BY user_id, event_time
         """)
         # user 1 first (sorted by event_time), then user 3
-        assert rows[0][0] == 1  # user_id=1, 10:00
-        assert rows[1][0] == 1  # user_id=1, 12:00
-        assert rows[2][0] == 3  # user_id=3, 15:00
+        assert len(rows) >= 3
+        # Find the rows we just inserted by payload
+        our_rows = [r for r in rows if r[2] in ("a", "b", "c")]
+        assert our_rows[0][0] == 1  # user_id=1, 10:00
+        assert our_rows[1][0] == 1  # user_id=1, 12:00
+        assert our_rows[2][0] == 3  # user_id=3, 15:00
