@@ -1,0 +1,35 @@
+<!--
+  Custom ClickHouse storage configuration for example 06.
+
+  Defines two local disks and a "tiered" storage policy with two volumes:
+    - "hot"  : fast storage (default disk)
+    - "warm" : slower/archive storage (separate path inside the container)
+
+  This file is mounted into the container at:
+    /etc/clickhouse-server/config.d/storage.xml
+-->
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <hot_disk>
+                <path>/var/lib/clickhouse/</path>
+            </hot_disk>
+            <warm_disk>
+                <path>/var/lib/clickhouse_warm/</path>
+            </warm_disk>
+        </disks>
+
+        <policies>
+            <tiered>
+                <volumes>
+                    <hot>
+                        <disk>hot_disk</disk>
+                    </hot>
+                    <warm>
+                        <disk>warm_disk</disk>
+                    </warm>
+                </volumes>
+            </tiered>
+        </policies>
+    </storage_configuration>
+</clickhouse>

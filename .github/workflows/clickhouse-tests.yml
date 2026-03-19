@@ -1,0 +1,37 @@
+# GitHub Actions workflow: Run ClickHouse tests with testcontainers
+#
+# This workflow demonstrates how to run testcontainers in CI.
+# Key points:
+#   - GitHub-hosted runners have Docker pre-installed, so no extra setup needed
+#   - testcontainers starts its own containers (no docker-compose, no services block)
+#   - The Ryuk sidecar handles cleanup automatically
+#
+# That's it. There is no ClickHouse configuration in this workflow --
+# testcontainers handles everything inside the test code.
+
+name: ClickHouse Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest test_clickhouse.py -v
